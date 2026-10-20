@@ -1,79 +1,80 @@
 # opencode-mcp-state-saver
 
-OpenCode **v2** плагин: сохраняет состояние MCP-серверов между перезапусками.
+An OpenCode **v2** plugin: persists the state of MCP servers across restarts.
 
-Проблема: кнопки Connect/Disconnect в `/mcps` работают только до рестарта
-(`connect` — «overriding a disabled configuration until restart»,
-`disconnect` — «removing its tools until reconnected»). После перезапуска
-сервер снова включается, даже если ты его выключал.
+The problem: the Connect/Disconnect buttons in `/mcps` only last until a restart
+(`connect` — "overriding a disabled configuration until restart",
+`disconnect` — "removing its tools until reconnected"). After a restart,
+the server is enabled again, even if you had disabled it.
 
-Плагин запоминает твои действия и при каждом старте возвращает серверы
-в то состояние, в котором ты их оставил, через `ctx.mcp.transform`
+The plugin remembers your actions and, on every start, restores the servers
+to the state you left them in, via `ctx.mcp.transform`
 (`disabled: true/false`) + `ctx.mcp.reload()`.
 
-Готового v2-плагина с таким поведением в npm не нашлось
-(есть только paseo-плагин `opencode-mcp-toggle` и тематические MCP-плагины) —
-поэтому написан этот.
+No ready-made v2 plugin with this behavior was found on npm
+(only the paseo plugin `opencode-mcp-toggle` and topic-specific MCP plugins) —
+so this one was written.
 
-## Как работает
+## How it works
 
-1. При старте читает список выключенных серверов из `ctx.storage`
-   (ключ `disabled-servers-v1`) и применяет его трансформацией:
+1. On startup, it reads the list of disabled servers from `ctx.storage`
+   (key `disabled-servers-v1`) and applies it via a transform:
    `editor.update(name, c => { c.disabled = true })`.
-2. Импортирует `disabled: true` из `opencode.json(c)` в storage при первом
-   запуске, чтобы флаг пережил даже удаление из конфига.
-3. Слушает события `mcp.status.changed` (+ `mcp.tools.changed`,
-   `mcp.resources.changed` как fallback) и раз в 3 секунды сверяется
-   с `ctx.mcp.list()`:
-   - статус `disabled` → добавить в storage (сохранить «выключен»);
-   - статус `connected` → убрать из storage (сохранить «включён»);
-   - `pending` / `failed` / `needs_auth` игнорируются — это не действие
-     пользователя.
-4. После изменения вызывает `ctx.mcp.reload()`, чтобы трансформация
-   пересчиталась и состояние пережило рестарт.
-5. Чистит storage от серверов, которых больше нет ни в конфиге, ни в рантайме.
+2. It imports `disabled: true` from `opencode.json(c)` into storage on the first
+   run, so the flag survives even removal from the config.
+3. It listens for `mcp.status.changed` events (+ `mcp.tools.changed`,
+   `mcp.resources.changed` as a fallback) and every 3 seconds reconciles
+   with `ctx.mcp.list()`:
+   - status `disabled` → add to storage (remember "disabled");
+   - status `connected` → remove from storage (remember "enabled");
+   - `pending` / `failed` / `needs_auth` are ignored — these are not user
+     actions.
+4. After a change, it calls `ctx.mcp.reload()` so the transform
+   is recomputed and the state survives a restart.
+5. It cleans up storage of servers that no longer exist in either the config
+   or the runtime.
 
-Первые ~8 секунд после старта синхронизация пропущена (grace window):
-серверы переходят `pending → connected`, и это не должно считаться
-нажатием «connect».
+The first ~8 seconds after startup are skipped by synchronization (grace window):
+servers transition `pending → connected`, and that must not be counted
+as a "connect" press.
 
-## Установка
+## Installation
 
-Вариант A — глобально для всех проектов:
+Option A — globally for all projects:
 
 ```sh
-# скопировать папку плагина
+# copy the plugin folder
 cp -r savemcpstate ~/.config/opencode/plugins/mcp-state-saver
 ```
 
-Плагины из `~/.config/opencode/plugins/` подхватываются автоматически.
-Либо явно через конфиг:
+Plugins from `~/.config/opencode/plugins/` are picked up automatically.
+Or explicitly via config:
 
 ```jsonc
 // ~/.config/opencode/opencode.jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["./plugins/mcp-state-saver"], // путь от файла конфига
+  "plugins": ["./plugins/mcp-state-saver"], // path relative to the config file
 }
 ```
 
-Вариант B — только для одного проекта:
+Option B — for a single project only:
 
 ```sh
 cp -r savemcpstate .opencode/plugins/mcp-state-saver
 ```
 
-## Проверка
+## Verification
 
-1. `opencode mcp list` — запомни состояние.
-2. Открой OpenCode, `/mcps`, выключи сервер.
-3. Подожди ~5 секунд (чтобы плагин успел записать в storage).
+1. `opencode mcp list` — note the current state.
+2. Open OpenCode, `/mcps`, disable a server.
+3. Wait ~5 seconds (so the plugin has time to write to storage).
 4. `opencode service restart`.
-5. `opencode mcp list` — сервер должен остаться выключенным.
+5. `opencode mcp list` — the server should remain disabled.
 
-Включи обратно — после рестарта он останется включённым.
+Enable it back — after a restart it will remain enabled.
 
-## Опции
+## Options
 
 ```jsonc
 {
@@ -81,14 +82,14 @@ cp -r savemcpstate .opencode/plugins/mcp-state-saver
 }
 ```
 
-| Опция     | По умолчанию | Описание                              |
-| --------- | ------------ | ------------------------------------- |
-| `pollMs`  | `3000`       | Интервал сверки с `mcp.list()` (мин 500) |
-| `verbose` | `false`      | Логи `[mcp-state-saver]` в консоль сервера  |
+| Option    | Default | Description                              |
+| --------- | ------- | ---------------------------------------- |
+| `pollMs`  | `3000`  | Reconciliation interval with `mcp.list()` (min 500) |
+| `verbose` | `false` | `[mcp-state-saver]` logs to the server console |
 
-## Ограничения
+## Limitations
 
-- Состояние хранится в `ctx.storage` плагина (per-location). Глобальный
-  сервер, выключенный в одном проекте, в другом проекте может остаться
-  включённым — это семантика location-scoped MCP в OpenCode.
-- Ошибки запуска (`failed`) и ожидание OAuth (`needs_auth`) не сохраняются.
+- The state is stored in the plugin's `ctx.storage` (per-location). A global
+  server disabled in one project may remain enabled in another project —
+  that is the semantics of location-scoped MCP in OpenCode.
+- Startup errors (`failed`) and OAuth waiting (`needs_auth`) are not persisted.
